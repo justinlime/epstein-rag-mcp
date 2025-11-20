@@ -29,6 +29,8 @@ COLLECTION_NAME = "epstein_files"
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
 MAX_TOKENS_PER_RESULT = int(os.getenv("MAX_TOKENS_PER_RESULT", "150"))
+MAX_QUERY_LIMIT = int(os.getenv("MAX_QUERY_LIMIT", "5"))
+DEFAULT_QUERY_LIMIT = int(os.getenv("DEFAULT_QUERY_LIMIT", "3"))
 BATCH_SIZE = 100
 
 
@@ -44,6 +46,8 @@ log("Epstein RAG MCP Server Starting")
 log(f"QDRANT_HOST: {QDRANT_HOST}")
 log(f"QDRANT_PORT: {QDRANT_PORT}")
 log(f"MAX_TOKENS_PER_RESULT: {MAX_TOKENS_PER_RESULT}")
+log(f"DEFAULT_QUERY_LIMIT: {DEFAULT_QUERY_LIMIT}")
+log(f"MAX_QUERY_LIMIT: {MAX_QUERY_LIMIT}")
 log("=" * 80)
 
 
@@ -271,10 +275,10 @@ async def list_tools() -> List[Tool]:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of results to return (default: 3, max: 5)",
-                        "default": 3,
+                        "description": f"Maximum number of results to return (default: {DEFAULT_QUERY_LIMIT}, max: {MAX_QUERY_LIMIT})",
+                        "default": DEFAULT_QUERY_LIMIT,
                         "minimum": 1,
-                        "maximum": 5
+                        "maximum": MAX_QUERY_LIMIT
                     },
                     "max_tokens": {
                         "type": "integer",
@@ -304,11 +308,14 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
     try:
         # Extract arguments
         query = arguments.get("query") if isinstance(arguments, dict) else None
-        limit = arguments.get("limit", 3) if isinstance(arguments, dict) else 3
+        limit = arguments.get("limit", DEFAULT_QUERY_LIMIT) if isinstance(arguments, dict) else DEFAULT_QUERY_LIMIT
         max_tokens_per_result = arguments.get("max_tokens", MAX_TOKENS_PER_RESULT) if isinstance(arguments, dict) else MAX_TOKENS_PER_RESULT
         
-        # Cap limit
-        limit = min(limit, 5)
+        # Cap limit to configured maximum
+        original_limit = limit
+        limit = min(limit, MAX_QUERY_LIMIT)
+        if original_limit != limit:
+            log(f"Limit capped from {original_limit} to {limit} (max: {MAX_QUERY_LIMIT})", "WARNING")
         
         log(f"Query: '{query}', limit: {limit}, max_tokens: {max_tokens_per_result}")
 
@@ -376,15 +383,21 @@ def main_sync():
                        help="Qdrant port (default: 6333)")
     parser.add_argument("--max-tokens", type=int, default=int(os.getenv("MAX_TOKENS_PER_RESULT", "150")),
                        help="Maximum tokens per result excerpt (default: 150)")
+    parser.add_argument("--default-limit", type=int, default=int(os.getenv("DEFAULT_QUERY_LIMIT", "3")),
+                       help="Default number of search results (default: 3)")
+    parser.add_argument("--max-limit", type=int, default=int(os.getenv("MAX_QUERY_LIMIT", "5")),
+                       help="Maximum number of search results allowed (default: 5)")
     args = parser.parse_args()
 
     # Override global config with CLI args
-    global QDRANT_HOST, QDRANT_PORT, MAX_TOKENS_PER_RESULT
+    global QDRANT_HOST, QDRANT_PORT, MAX_TOKENS_PER_RESULT, DEFAULT_QUERY_LIMIT, MAX_QUERY_LIMIT
     QDRANT_HOST = args.qdrant_host
     QDRANT_PORT = args.qdrant_port
     MAX_TOKENS_PER_RESULT = args.max_tokens
+    DEFAULT_QUERY_LIMIT = args.default_limit
+    MAX_QUERY_LIMIT = args.max_limit
 
-    log(f"Config: QDRANT_HOST={QDRANT_HOST}, QDRANT_PORT={QDRANT_PORT}, MAX_TOKENS={MAX_TOKENS_PER_RESULT}")
+    log(f"Config: QDRANT_HOST={QDRANT_HOST}, QDRANT_PORT={QDRANT_PORT}, MAX_TOKENS={MAX_TOKENS_PER_RESULT}, DEFAULT_LIMIT={DEFAULT_QUERY_LIMIT}, MAX_LIMIT={MAX_QUERY_LIMIT}")
 
     try:
         asyncio.run(main())
