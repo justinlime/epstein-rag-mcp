@@ -13,7 +13,7 @@ from datetime import datetime
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, SearchRequest
 import pandas as pd
 import tiktoken
 
@@ -208,13 +208,25 @@ class EpsteinRAGServer:
             raise RuntimeError("Collection not initialized")
 
         try:
+            # Encode query
             query_vector = self.embedding_model.encode(query).tolist()
             
-            search_result = self.qdrant_client.search(
-                collection_name=COLLECTION_NAME,
-                query_vector=query_vector,
-                limit=limit
-            )
+            # Use query_points method (the correct method name in newer qdrant-client)
+            try:
+                search_result = self.qdrant_client.query_points(
+                    collection_name=COLLECTION_NAME,
+                    query=query_vector,
+                    limit=limit
+                ).points
+            except AttributeError:
+                # Fallback for older versions that use search()
+                log("query_points not available, trying search()", "WARNING")
+                search_result = self.qdrant_client.search(
+                    collection_name=COLLECTION_NAME,
+                    query_vector=query_vector,
+                    limit=limit
+                )
+            
             log(f"Qdrant returned {len(search_result)} results")
 
             # Format results
